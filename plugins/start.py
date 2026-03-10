@@ -2,7 +2,6 @@
 /start — force-sub gate + file delivery.
 """
 import asyncio
-import functools
 import logging
 
 from aiogram import Router, F
@@ -128,7 +127,6 @@ async def deliver_file(message: Message, bot, start_param: str):
 # ── /start ─────────────────────────────────────────────────────────────────────
 
 @router.message(CommandStart(), is_not_banned)
-@functools.wraps(lambda m, **kw: None)
 async def start_handler(message: Message, command: CommandObject, bot):
     user = message.from_user
     if not await CosmicBotz.present_user(user.id):
@@ -158,7 +156,6 @@ async def start_handler(message: Message, command: CommandObject, bot):
 # ── Reload callback ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("reload"))
-@functools.wraps(lambda c, **kw: None)
 async def reload_callback(callback: CallbackQuery, bot):
     user        = callback.from_user
     # data is "reload" or "reload_<start_param>"
@@ -202,7 +199,6 @@ def _start_markup():
 
 
 @router.callback_query(F.data == "help")
-@functools.wraps(lambda c, **kw: None)
 async def help_cb(callback: CallbackQuery):
     try:
         await callback.message.edit_caption(caption=HELP_TXT, reply_markup=_back_btn())
@@ -211,7 +207,6 @@ async def help_cb(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "about")
-@functools.wraps(lambda c, **kw: None)
 async def about_cb(callback: CallbackQuery):
     try:
         await callback.message.edit_caption(caption=ABOUT_TXT, reply_markup=_back_btn())
@@ -220,7 +215,6 @@ async def about_cb(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "back_start")
-@functools.wraps(lambda c, **kw: None)
 async def back_start_cb(callback: CallbackQuery):
     mention = user_mention(callback.from_user)
     text    = START_MSG.replace("{mention}", mention)
@@ -231,6 +225,5 @@ async def back_start_cb(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "close")
-@functools.wraps(lambda c, **kw: None)
 async def close_cb(callback: CallbackQuery):
     await callback.message.delete()
