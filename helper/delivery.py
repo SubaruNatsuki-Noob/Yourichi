@@ -1,6 +1,6 @@
 """
-Core delivery engine — used by all file-sending features.
-Handles: start msg, files with caption, end msg, auto-delete + re-request button.
+Core delivery engine.
+Caption baked at store time. Tasks held in _tasks set to prevent GC cancellation.
 """
 import asyncio
 import logging
@@ -13,9 +13,66 @@ from helper.caption_parser import render_caption
 
 logger = logging.getLogger(__name__)
 
+# Strong reference set — prevents asyncio from GC-cancelling tasks before they run
+_tasks: set = set()
+
+
+def _extract_fname(msg) -> str:
+    return (
+        (msg.document   and msg.document.file_name)
+        or (msg.video   and (msg.video.file_name   or "video.mp4"))
+        or (msg.audio   and (msg.audio.file_name   or "audio.mp3"))
+        or (msg.voice   and "voice.ogg")
+        or (msg.animation and "animation.gif")
+        or (msg.photo   and "photo.jpg")
+        or "file"
+    )
+
+
+async def store_file_with_caption(bot: Bot, source_msg, channel_id: int = CHANNEL_ID) -> int | None:
+    try:
+        stored = await source_msg.copy_to(channel_id)
+        msg_id = stored.message_id
+    except Exception as e:
+        logger.error(f"store_file_with_caption: {e}")
+        return None
+
+    caption_tpl = await CosmicBotz.get_caption()
+    if caption_tpl:
+        fname    = _extract_fname(source_msg)
+        rendered = render_caption(caption_tpl, fname)
+        try:
+            await bot.edit_message_caption(
+                chat_id=channel_id, message_id=msg_id, caption=rendered,
+            )
+        except Exception as e:
+            logger.debug(f"store caption edit msg={msg_id}: {e}")
+
+    return msg_id
+
+
+async def apply_caption_in_db(bot: Bot, msg_id: int, channel_id: int = CHANNEL_ID):
+    caption_tpl = await CosmicBotz.get_caption()
+    if not caption_tpl:
+        return
+    try:
+        peek = await bot.forward_message(
+            chat_id=channel_id, from_chat_id=channel_id, message_id=msg_id,
+        )
+        fname = _extract_fname(peek)
+        try:
+            await bot.delete_message(channel_id, peek.message_id)
+        except Exception:
+            pass
+        rendered = render_caption(caption_tpl, fname)
+        await bot.edit_message_caption(
+            chat_id=channel_id, message_id=msg_id, caption=rendered,
+        )
+    except Exception as e:
+        logger.debug(f"apply_caption_in_db msg={msg_id}: {e}")
+
 
 async def _send_wrapper(bot: Bot, chat_id: int, data: dict) -> int | None:
-    """Send a start/end wrapper message. Returns message_id."""
     if not data:
         return None
     try:
@@ -33,102 +90,95 @@ async def _send_wrapper(bot: Bot, chat_id: int, data: dict) -> int | None:
         return None
 
 
-async def _copy_with_caption(bot: Bot, chat_id: int, msg_id: int, caption_tpl: str) -> int | None:
-    """Copy one file from DB channel to user, applying caption template."""
-    try:
-        fwd = await bot.copy_message(
-            chat_id=chat_id,
-            from_chat_id=CHANNEL_ID,
-            message_id=msg_id,
-            protect_content=PROTECT_CONTENT,
-        )
-        if caption_tpl:
-            # Extract filename from the message object
-            fname = (
-                (fwd.document  and fwd.document.file_name)
-                or (fwd.video  and (fwd.video.file_name   or "video.mp4"))
-                or (fwd.audio  and (fwd.audio.file_name   or "audio.mp3"))
-                or (fwd.voice  and "voice.ogg")
-                or (fwd.animation and "animation.gif")
-                or "file"
-            )
-            rendered = render_caption(caption_tpl, fname)
-            try:
-                await bot.edit_message_caption(
-                    chat_id=chat_id,
-                    message_id=fwd.message_id,
-                    caption=rendered,
-                )
-            except Exception:
-                pass  # some media types don't support captions
-        return fwd.message_id
-    except Exception as e:
-        logger.error(f"_copy_with_caption msg_id={msg_id}: {e}")
-        return None
-
-
-async def _autodelete_task(bot: Bot, chat_id: int, msg_ids: list, delay: int, reget_link: str):
+async def _autodelete_task(
+    bot: Bot,
+    chat_id: int,
+    file_msg_ids: list,
+    notice_msg_id: int,
+    delay: int,
+    reget_link: str,
+    label: str,
+):
     await asyncio.sleep(delay)
-    for mid in msg_ids:
+
+    for mid in file_msg_ids:
         try:
             await bot.delete_message(chat_id, mid)
         except Exception:
             pass
+
     try:
-        await bot.send_message(
-            chat_id,
-            "🗑 <b>Your files have been deleted.</b>\n\nTap below to get them again anytime:",
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=notice_msg_id,
+            text=(
+                f"🗑 ꜰɪʟᴇꜱ ᴅᴇʟᴇᴛᴇᴅ\n\n"
+                f"ɢᴇᴛ ᴛʜᴇᴍ ᴀɢᴀɪɴ ᴀɴʏᴛɪᴍᴇ ʙᴇʟᴏᴡ ↓"
+            ),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 Get Files Again", url=reget_link)]
-            ])
+                [InlineKeyboardButton(text="🔄 ɢᴇᴛ ꜰɪʟᴇꜱ ᴀɢᴀɪɴ", url=reget_link)]
+            ]),
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"edit notice failed: {e}")
 
 
-async def full_delivery(bot: Bot, chat_id: int, msg_ids: list[int], start_param: str):
-    """
-    Full delivery pipeline:
-      1. Start wrapper message
-      2. All files (with caption applied)
-      3. End wrapper message
-      4. Auto-delete notice + schedule deletion
-    """
-    caption_tpl = await CosmicBotz.get_caption() or ""
-    del_timer   = await CosmicBotz.get_del_timer()
-    all_sent    = []
+async def full_delivery(
+    bot: Bot,
+    chat_id: int,
+    pairs: list[tuple[int, int]],
+    start_param: str,
+    apply_caption: bool = True,
+):
+    del_timer = await CosmicBotz.get_del_timer()
+    all_sent  = []
 
-    # 1. Start message
     start_data = await CosmicBotz.get_batch_start()
     if start_data:
         mid = await _send_wrapper(bot, chat_id, start_data)
         if mid:
             all_sent.append(mid)
 
-    # 2. Files
-    for msg_id in msg_ids:
-        mid = await _copy_with_caption(bot, chat_id, msg_id, caption_tpl)
-        if mid:
-            all_sent.append(mid)
+    for channel_id, msg_id in pairs:
+        if apply_caption:
+            await apply_caption_in_db(bot, msg_id, channel_id)
+        try:
+            result = await bot.copy_message(
+                chat_id=chat_id,
+                from_chat_id=channel_id,
+                message_id=msg_id,
+                protect_content=PROTECT_CONTENT,
+            )
+            all_sent.append(result.message_id)
+        except Exception as e:
+            logger.error(f"copy_message ch={channel_id} msg={msg_id}: {e}")
 
-    # 3. End message
     end_data = await CosmicBotz.get_batch_end()
     if end_data:
         mid = await _send_wrapper(bot, chat_id, end_data)
         if mid:
             all_sent.append(mid)
 
-    # 4. Auto-delete
     if del_timer > 0 and all_sent:
         me    = await bot.get_me()
         link  = f"https://t.me/{me.username}?start={start_param}"
         mins  = del_timer // 60
-        label = f"{mins} minute(s)" if mins else f"{del_timer} second(s)"
+        label = f"{mins}ᴍ" if mins else f"{del_timer}ꜱ"
+
         notice = await bot.send_message(
             chat_id,
-            f"⚠️ <b>Files will auto-delete in {label}.</b> Save them now."
+            f"⚠️ ꜰɪʟᴇꜱ ᴀᴜᴛᴏ-ᴅᴇʟᴇᴛᴇ ɪɴ {label}\n\nꜱᴀᴠᴇ ᴛʜᴇᴍ ɴᴏᴡ ↓",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"⏳ {label} ʟᴇꜰᴛ", callback_data="noop")]
+            ])
         )
-        all_sent.append(notice.message_id)
-        asyncio.create_task(
-            _autodelete_task(bot, chat_id, all_sent, del_timer, link)
+
+        # Hold strong reference so task isn't GC'd before it fires
+        task = asyncio.create_task(
+            _autodelete_task(
+                bot, chat_id, all_sent, notice.message_id,
+                del_timer, link, label,
+            )
         )
+        _tasks.add(task)
+        task.add_done_callback(_tasks.discard)
