@@ -1,10 +1,9 @@
 """
-Batch commands:
-/batch        — Ask first & last msg ID from DB channel → instant link
-/custom_batch — Send files here → /done → link (files auto-stored in DB channel)
-/done         — Finish custom_batch session
-/cancel       — Cancel any active session
-/pro_batch    — Paste post URLs → scan, sort by episode+quality → structured links
+/batch        — First & last msg ID from DB channel → instant link
+/custom_batch — Send files here → /done → link (stored in DB channel with caption)
+/done         — Finish session
+/cancel       — Cancel any session
+/pro_batch    — Wizard: first post → last post → scan range → sort by ep+quality
 """
 import re
 import logging
@@ -17,6 +16,7 @@ from database.database import CosmicBotz
 from helper import is_admin, encode_file_id
 from helper.utils import parse_tg_url
 from helper.caption_parser import parse_filename
+from helper.delivery import store_file_with_caption
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -26,8 +26,25 @@ MEDIA_TYPES = {
     ContentType.PHOTO, ContentType.ANIMATION, ContentType.VOICE, ContentType.VIDEO_NOTE,
 }
 
-_sessions: dict = {}      # uid -> {"mode": "custom"|"pro", "msg_ids": [], "urls": []}
+_sessions:     dict = {}  # uid -> {"mode": "custom", "msg_ids": []}
 _batch_wizard: dict = {}  # uid -> {"step": "first"|"last", "first_id": int}
+_pro_wizard:   dict = {}  # uid -> {"step": "first"|"last", "chat_ref": str, "first_msg": int}
+
+
+async def _try_log(bot, text: str, link: str):
+    log_ch = await CosmicBotz.get_log_channel()
+    if not log_ch:
+        return
+    try:
+        await bot.send_message(
+            log_ch, f"{text}\n{link}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔗 Open", url=link)]
+            ]),
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        pass
 
 
 # ── /batch ─────────────────────────────────────────────────────────────────────
@@ -57,11 +74,9 @@ async def batch_wizard_input(message: Message, bot):
             f"Step 2/2 — Now send the <b>last message ID</b>:"
         )
 
-    # step == "last"
     first_id = state["first_id"]
     last_id  = msg_id
     del _batch_wizard[uid]
-
     if last_id < first_id:
         first_id, last_id = last_id, first_id
 
@@ -71,27 +86,13 @@ async def batch_wizard_input(message: Message, bot):
     count = last_id - first_id + 1
 
     await message.answer(
-        f"✅ <b>Batch link created!</b>\n\n"
-        f"📦 Files: <b>{count}</b>  (IDs {first_id}–{last_id})\n"
-        f"🔗 {link}",
+        f"✅ <b>Batch link created!</b>\n\n📦 Files: <b>{count}</b>  (IDs {first_id}–{last_id})\n🔗 {link}",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔗 Share Link", url=link)]
         ]),
         disable_web_page_preview=True,
     )
-    log_ch = await CosmicBotz.get_log_channel()
-    if log_ch:
-        try:
-            await bot.send_message(
-                log_ch,
-                f"📦 <b>Batch link</b>\nFiles: {count} | IDs: {first_id}–{last_id}\n{link}",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔗 Share", url=link)]
-                ]),
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            pass
+    await _try_log(bot, f"📦 Batch | {count} files | IDs {first_id}–{last_id}", link)
 
 
 # ── /custom_batch ──────────────────────────────────────────────────────────────
@@ -101,9 +102,8 @@ async def custom_batch_cmd(message: Message):
     _sessions[message.from_user.id] = {"mode": "custom", "msg_ids": []}
     await message.answer(
         "📁 <b>Custom Batch mode!</b>\n\n"
-        "Send or forward files here — each one is stored automatically.\n\n"
-        "/done → generate link\n"
-        "/cancel → abort"
+        "Send or forward files — each one is stored in the DB channel with caption applied.\n\n"
+        "/done → get link\n/cancel → abort"
     )
 
 
@@ -113,45 +113,26 @@ async def custom_batch_cmd(message: Message):
 async def done_cmd(message: Message, bot):
     uid     = message.from_user.id
     session = _sessions.pop(uid, None)
-
     if not session:
-        return await message.answer("❌ No active session. Start one with /custom_batch or /pro_batch.")
+        return await message.answer("❌ No active session.")
 
     msg_ids = session.get("msg_ids", [])
-
-    # pro_batch mode — URLs collected, now process them
-    if session.get("mode") == "pro" and session.get("urls"):
-        return await _process_pro_batch(message, bot, session["urls"])
-
     if not msg_ids:
         return await message.answer("❌ No files collected yet.")
 
-    me    = await bot.get_me()
-    param = "cb_" + "_".join(str(i) for i in msg_ids)
-    link  = f"https://t.me/{me.username}?start={param}"
+    me            = await bot.get_me()
+    encoded_parts = [encode_file_id(CHANNEL_ID, mid) for mid in msg_ids]
+    param         = "cb_" + "_".join(encoded_parts)
+    link          = f"https://t.me/{me.username}?start={param}"
 
     await message.answer(
-        f"✅ <b>Custom batch link!</b>\n\n"
-        f"📦 Files: <b>{len(msg_ids)}</b>\n"
-        f"🔗 {link}",
+        f"✅ <b>Custom batch link!</b>\n\n📦 Files: <b>{len(msg_ids)}</b>\n🔗 {link}",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔗 Share Link", url=link)]
         ]),
         disable_web_page_preview=True,
     )
-    log_ch = await CosmicBotz.get_log_channel()
-    if log_ch:
-        try:
-            await bot.send_message(
-                log_ch,
-                f"📁 <b>Custom batch</b>\nFiles: {len(msg_ids)}\n{link}",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔗 Share", url=link)]
-                ]),
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            pass
+    await _try_log(bot, f"📁 Custom batch | {len(msg_ids)} files", link)
 
 
 # ── /cancel ────────────────────────────────────────────────────────────────────
@@ -159,183 +140,188 @@ async def done_cmd(message: Message, bot):
 @router.message(Command("cancel"), is_admin)
 async def cancel_cmd(message: Message):
     uid = message.from_user.id
-    if _sessions.pop(uid, None) or _batch_wizard.pop(uid, None):
+    if _sessions.pop(uid, None) or _batch_wizard.pop(uid, None) or _pro_wizard.pop(uid, None):
         await message.answer("❌ Session cancelled.")
     else:
         await message.answer("No active session.")
 
 
-# ── Media collector — only during custom_batch session ─────────────────────────
+# ── Media collector — custom_batch only ────────────────────────────────────────
 
 @router.message(is_admin, F.chat.type == "private", F.content_type.in_(MEDIA_TYPES))
-async def collect_media(message: Message):
+async def collect_media(message: Message, bot):
     uid     = message.from_user.id
     session = _sessions.get(uid)
     if not session or session["mode"] != "custom":
-        return  # pass to auto_genlink in links.py
+        return  # auto_genlink in links.py handles it
 
-    try:
-        stored = await message.copy_to(CHANNEL_ID)
-        session["msg_ids"].append(stored.message_id)
-        n = len(session["msg_ids"])
-        await message.answer(f"✅ File <b>{n}</b> stored. Send more or /done.")
-    except Exception as e:
-        logger.error(f"collect_media: {e}")
-        await message.answer(f"❌ Failed to store:\n<code>{e}</code>")
+    # Store in DB channel AND apply caption at store time
+    msg_id = await store_file_with_caption(bot, message)
+    if not msg_id:
+        return await message.answer("❌ Failed to store file.")
 
-
-# ── /pro_batch ─────────────────────────────────────────────────────────────────
-
-QUALITY_RE = re.compile(
-    r"(2160[Pp]|1440[Pp]|1080[Pp]|720[Pp]|540[Pp]|480[Pp]|360[Pp]|240[Pp]|144[Pp]|4[Kk]|FHD|fhd|HD|hd)",
-    re.IGNORECASE,
-)
+    session["msg_ids"].append(msg_id)
+    n = len(session["msg_ids"])
+    await message.answer(f"✅ File <b>{n}</b> stored with caption. Send more or /done.")
 
 
-def _norm_quality(q: str) -> str:
-    q = q.lower()
-    if q in ("4k", "2160p"):    return "2160p"
-    if q in ("fhd", "1080p"):   return "1080p"
-    if q in ("hd", "720p"):     return "720p"
-    return q
-
-
-def _quality_rank(q: str) -> int:
-    order = ["144p","240p","360p","480p","540p","720p","1080p","1440p","2160p"]
-    try:
-        return order.index(_norm_quality(q))
-    except ValueError:
-        return 99
-
+# ── /pro_batch — wizard: forward/URL first → last ─────────────────────────────
 
 @router.message(Command("pro_batch"), is_admin)
-async def pro_batch_cmd(message: Message, bot):
-    text = message.text or ""
-    urls = re.findall(r"https?://t\.me/\S+", text)
-
-    if urls:
-        return await _process_pro_batch(message, bot, urls)
-
-    # No URLs inline — start collection session
-    _sessions[message.from_user.id] = {"mode": "pro", "msg_ids": [], "urls": []}
+async def pro_batch_cmd(message: Message):
+    _pro_wizard[message.from_user.id] = {"step": "first"}
     await message.answer(
-        "🚀 <b>Pro Batch mode!</b>\n\n"
-        "Paste your channel post URLs (one per line or space-separated).\n\n"
-        "<b>Supported formats:</b>\n"
-        "• <code>https://t.me/channelname/123</code>\n"
-        "• <code>https://t.me/c/1234567890/123</code>\n\n"
-        "Send /done when finished."
+        "🚀 <b>Pro Batch</b>\n\n"
+        "Step 1/2 — Forward or paste the <b>first post</b> from your channel.\n\n"
+        "Accepted:\n"
+        "• Forward the message here\n"
+        "• Paste URL: <code>https://t.me/c/1234567890/100</code>\n\n"
+        "/cancel to abort."
     )
 
 
-@router.message(is_admin, F.chat.type == "private", F.text, ~F.text.startswith("/"))
-async def pro_batch_url_input(message: Message, bot):
-    uid     = message.from_user.id
-    session = _sessions.get(uid)
-    if not session or session.get("mode") != "pro":
+@router.message(is_admin, F.chat.type == "private")
+async def pro_wizard_input(message: Message, bot):
+    uid   = message.from_user.id
+    state = _pro_wizard.get(uid)
+    if not state:
         return
 
-    urls = re.findall(r"https?://t\.me/\S+", message.text or "")
-    if not urls:
-        return
+    chat_ref, msg_id = _extract_ref(message)
+    if not chat_ref or not msg_id:
+        return await message.answer(
+            "❌ Couldn't parse. Forward a channel post or paste a <code>t.me</code> link."
+        )
 
-    session.setdefault("urls", []).extend(urls)
-    await message.answer(
-        f"✅ <b>{len(urls)}</b> URL(s) added. Total: <b>{len(session['urls'])}</b>\n\n"
-        "Send more or /done."
+    if state["step"] == "first":
+        _pro_wizard[uid] = {"step": "last", "chat_ref": chat_ref, "first_msg": msg_id}
+        return await message.answer(
+            f"✅ First post: ID <code>{msg_id}</code>\n\n"
+            f"Step 2/2 — Now forward or paste the <b>last post</b> from the same channel:"
+        )
+
+    # step == last
+    first_msg = state["first_msg"]
+    chat_ref  = state["chat_ref"]
+    last_msg  = msg_id
+    del _pro_wizard[uid]
+
+    if last_msg < first_msg:
+        first_msg, last_msg = last_msg, first_msg
+
+    total = last_msg - first_msg + 1
+    wait  = await message.answer(
+        f"🔍 Scanning <b>{total}</b> posts...\n<i>Please wait.</i>"
     )
+    await _process_pro_batch(message, bot, chat_ref, first_msg, last_msg, wait)
 
 
-async def _process_pro_batch(message: Message, bot, urls: list):
-    wait  = await message.answer(f"🔍 Scanning <b>{len(urls)}</b> URLs...")
-    files = []
+def _extract_ref(message: Message) -> tuple:
+    """Get (chat_ref, msg_id) from a forwarded post or URL in text."""
+    if message.forward_from_chat and message.forward_from_message_id:
+        return str(message.forward_from_chat.id), message.forward_from_message_id
+    if message.text:
+        urls = re.findall(r"https?://t\.me/\S+", message.text)
+        if urls:
+            return parse_tg_url(urls[0])
+    return None, None
 
-    for url in urls:
-        chat_ref, msg_id = parse_tg_url(url)
-        if not chat_ref or not msg_id:
-            continue
+
+# ── Pro batch processor ────────────────────────────────────────────────────────
+
+def _norm_q(q: str) -> str:
+    q = q.lower()
+    if q in ("4k", "2160p"):  return "2160p"
+    if q in ("fhd", "1080p"): return "1080p"
+    if q in ("hd", "720p"):   return "720p"
+    return q
+
+def _q_rank(q: str) -> int:
+    order = ["144p","240p","360p","480p","540p","720p","1080p","1440p","2160p"]
+    try:    return order.index(_norm_q(q))
+    except: return 99
+
+
+async def _process_pro_batch(
+    message: Message, bot, chat_ref: str, first_msg: int, last_msg: int, wait_msg
+):
+    files  = []
+    failed = 0
+
+    for mid in range(first_msg, last_msg + 1):
         try:
-            msg = await bot.forward_message(
+            # Forward to bot's DM to read metadata
+            fwd = await bot.forward_message(
                 chat_id=message.chat.id,
                 from_chat_id=chat_ref,
-                message_id=msg_id,
+                message_id=mid,
             )
             fname = (
-                (msg.document  and msg.document.file_name)
-                or (msg.video  and (msg.video.file_name or "video.mp4"))
-                or (msg.audio  and (msg.audio.file_name or "audio.mp3"))
+                (fwd.document  and fwd.document.file_name)
+                or (fwd.video  and (fwd.video.file_name or "video.mp4"))
+                or (fwd.audio  and (fwd.audio.file_name or "audio.mp3"))
                 or "file"
             )
             meta    = parse_filename(fname)
-            quality = _norm_quality(meta.get("quality") or "unknown")
+            quality = _norm_q(meta.get("quality") or "unknown")
             ep_raw  = meta.get("episode") or "0"
             episode = int(ep_raw) if str(ep_raw).isdigit() else 0
 
-            stored = await msg.copy_to(CHANNEL_ID)
+            # Store in DB channel with caption applied at store time
+            stored_id = await store_file_with_caption(bot, fwd)
             try:
-                await bot.delete_message(message.chat.id, msg.message_id)
+                await bot.delete_message(message.chat.id, fwd.message_id)
             except Exception:
                 pass
 
-            files.append({
-                "fname":   fname,
-                "episode": episode,
-                "quality": quality,
-                "msg_id":  stored.message_id,
-            })
+            if stored_id:
+                files.append({
+                    "fname":   fname,
+                    "episode": episode,
+                    "quality": quality,
+                    "msg_id":  stored_id,
+                })
         except Exception as e:
-            logger.warning(f"pro_batch {url}: {e}")
+            logger.warning(f"pro_batch mid={mid}: {e}")
+            failed += 1
 
     if not files:
-        return await wait.edit_text("❌ No valid files found from the provided URLs.")
+        return await wait_msg.edit_text(
+            f"❌ No valid files found in posts {first_msg}–{last_msg}."
+        )
 
-    files.sort(key=lambda f: (f["episode"], _quality_rank(f["quality"])))
+    files.sort(key=lambda f: (f["episode"], _q_rank(f["quality"])))
 
     me      = await bot.get_me()
-    lines   = ["<b>🎬 Pro Batch Results</b>\n"]
+    lines   = [f"<b>🎬 Pro Batch</b> ({len(files)} files)\n"]
     buttons = []
 
-    # Group by quality
-    by_quality: dict = {}
+    by_q: dict = {}
     for f in files:
-        by_quality.setdefault(f["quality"], []).append(f)
+        by_q.setdefault(f["quality"], []).append(f)
 
-    for quality in sorted(by_quality.keys(), key=_quality_rank):
-        group   = by_quality[quality]
-        ids     = [f["msg_id"] for f in group]
-        param   = "cb_" + "_".join(str(i) for i in ids)
-        link    = f"https://t.me/{me.username}?start={param}"
-        lines.append(f"\n<b>📺 {quality.upper()}</b>")
+    for q in sorted(by_q.keys(), key=_q_rank):
+        group = by_q[q]
+        enc   = [encode_file_id(CHANNEL_ID, f["msg_id"]) for f in group]
+        param = "cb_" + "_".join(enc)
+        link  = f"https://t.me/{me.username}?start={param}"
+        lines.append(f"\n<b>📺 {q.upper()}</b>")
         for f in group:
             ep = f"Ep {f['episode']:02d}" if f["episode"] else "–"
             lines.append(f"  • {ep} — {f['fname'][:45]}")
-        lines.append(f"  🔗 <a href='{link}'>Get {quality.upper()} ({len(group)} files)</a>")
-        buttons.append([InlineKeyboardButton(text=f"📥 {quality.upper()} ({len(group)})", url=link)])
+        buttons.append([InlineKeyboardButton(text=f"📥 {q.upper()} ({len(group)})", url=link)])
 
-    # Master link — all files
-    all_ids   = [f["msg_id"] for f in files]
-    all_param = "cb_" + "_".join(str(i) for i in all_ids)
+    all_enc   = [encode_file_id(CHANNEL_ID, f["msg_id"]) for f in files]
+    all_param = "cb_" + "_".join(all_enc)
     all_link  = f"https://t.me/{me.username}?start={all_param}"
-    buttons.insert(0, [InlineKeyboardButton(text=f"📦 All Qualities ({len(files)} files)", url=all_link)])
+    buttons.insert(0, [InlineKeyboardButton(text=f"📦 All ({len(files)} files)", url=all_link)])
 
-    await wait.edit_text(
+    if failed:
+        lines.append(f"\n<i>⚠️ {failed} post(s) skipped</i>")
+
+    await wait_msg.edit_text(
         "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
         disable_web_page_preview=True,
     )
-
-    log_ch = await CosmicBotz.get_log_channel()
-    if log_ch:
-        try:
-            await bot.send_message(
-                log_ch,
-                f"🚀 <b>Pro Batch</b>\n{len(files)} files scanned\n{all_link}",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📦 All Files", url=all_link)]
-                ]),
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            pass
-
-    _sessions.pop(message.from_user.id, None)
+    await _try_log(bot, f"🚀 Pro Batch | {len(files)} files", all_link)
