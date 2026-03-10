@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# render.yaml — AlisaFile Store Bot
+# Deploy with: connect this repo to Render → it reads this file automatically
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web                        # "web" gives you a public HTTPS URL (needed for webhook)
+    name: alisafile-bot
+    runtime: docker                  # Uses your Dockerfile
+    plan: free                       # free tier — upgrade to starter for always-on
+
+    # Health check — Render pings this to confirm your service is up
+    healthCheckPath: /
+
+    # Environment variables — fill these in Render dashboard or here (not secrets!)
+    envVars:
+      - key: TG_BOT_TOKEN
+        sync: false                  # set in Render dashboard (secret)
+
+      - key: OWNER_ID
+        sync: false
+
+      - key: CHANNEL_ID
+        sync: false
+
+      - key: DATABASE_URL
+        sync: false
+
+      - key: DATABASE_NAME
+        value: AlisaFileBot
+
+      - key: WEBHOOK
+        value: "True"                # True = webhook (recommended on Render)
+
+      - key: WEBHOOK_URL
+        # Render sets RENDER_EXTERNAL_URL automatically — use it!
+        fromService:
+          name: alisafile-bot
+          type: web
+          property: host
+          # This auto-fills as https://alisafile-bot.onrender.com
+          # If it doesn't work, hard-code: value: "https://your-app.onrender.com"
+
+      - key: WEBHOOK_PATH
+        value: "/webhook"
+
+      - key: PORT
+        value: "8080"
+
+      - key: PROTECT_CONTENT
+        value: "False"
+
+      - key: DISABLE_CHANNEL_BUTTON
+        value: "False"
+
+      - key: FSUB_LINK_EXPIRY
+        value: "60"
+
+      # Optional — fill or leave blank
+      - key: START_PIC
+        value: ""
+      - key: FORCE_PIC
+        value: ""
+      - key: CUSTOM_CAPTION
+        value: "<b>• {title}</b>"
+      - key: BAN_SUPPORT
+        value: "https://t.me/"
+      - key: OWNER
+        value: ""
