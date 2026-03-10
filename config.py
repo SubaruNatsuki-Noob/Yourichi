@@ -6,8 +6,6 @@ from logging.handlers import RotatingFileHandler
 # BOT CREDENTIALS
 # ─────────────────────────────────────────────────────────────────────────────
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
-APP_ID       = int(os.environ.get("APP_ID",   "0"))
-API_HASH     = os.environ.get("API_HASH",      "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OWNER / ADMINS
@@ -54,7 +52,7 @@ BAN_SUPPORT      = os.environ.get("BAN_SUPPORT", "https://t.me/")
 START_PIC              = os.environ.get("START_PIC",              "")
 FORCE_PIC              = os.environ.get("FORCE_PIC",              "")
 PROTECT_CONTENT        = os.environ.get("PROTECT_CONTENT",        "False") == "True"
-DISABLE_CHANNEL_BUTTON = os.environ.get("DISABLE_CHANNEL_BUTTON", "True") == "True"
+DISABLE_CHANNEL_BUTTON = os.environ.get("DISABLE_CHANNEL_BUTTON", "False") == "True"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MESSAGES  (all original texts preserved)
