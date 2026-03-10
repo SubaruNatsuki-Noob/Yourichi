@@ -148,12 +148,11 @@ async def cancel_cmd(message: Message):
 
 # ── Media collector — custom_batch only ────────────────────────────────────────
 
-@router.message(is_admin, F.chat.type == "private", F.content_type.in_(MEDIA_TYPES))
+@router.message(is_admin, F.chat.type == "private", F.content_type.in_(MEDIA_TYPES),
+    F.func(lambda m: _sessions.get(m.from_user.id, {}).get("mode") == "custom"))
 async def collect_media(message: Message, bot):
     uid     = message.from_user.id
     session = _sessions.get(uid)
-    if not session or session["mode"] != "custom":
-        return  # auto_genlink in links.py handles it
 
     # Store in DB channel AND apply caption at store time
     msg_id = await store_file_with_caption(bot, message)
@@ -180,7 +179,7 @@ async def pro_batch_cmd(message: Message):
     )
 
 
-@router.message(is_admin, F.chat.type == "private")
+@router.message(is_admin, F.chat.type == "private", F.func(lambda m: m.from_user.id in _pro_wizard))
 async def pro_wizard_input(message: Message, bot):
     uid   = message.from_user.id
     state = _pro_wizard.get(uid)
