@@ -1,160 +1,119 @@
 """
-Batch upload handlers.
+Batch commands:
 
-/batch        — session mode: send files one by one → /done for link
-/custom_batch — specific message IDs mode → /done for link
-/done         — finish active session and generate link
-/cancel       — abort current session
+/batch        — Ask for first msg ID and last msg ID from DB channel → instant link
+/custom_batch — Send multiple files directly to bot → /done → link (stored in DB channel)
+/done         — Finish custom_batch session
+/cancel       — Cancel any active session
+/pro_batch    — Paste URLs, scan & sort by episode+quality, generate structured link set
 """
+import re
 import logging
-
+import asyncio
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ContentType
 
 from config import CHANNEL_ID
 from database.database import CosmicBotz
-from helper import is_admin
+from helper import is_admin, encode_file_id
+from helper.utils import parse_tg_url
+from helper.caption_parser import parse_filename
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 MEDIA_TYPES = {
     ContentType.DOCUMENT, ContentType.VIDEO, ContentType.AUDIO,
-    ContentType.PHOTO, ContentType.ANIMATION, ContentType.VOICE,
-    ContentType.VIDEO_NOTE,
+    ContentType.PHOTO, ContentType.ANIMATION, ContentType.VOICE, ContentType.VIDEO_NOTE,
 }
 
-# user_id -> {"mode": "batch"|"custom", "msg_ids": [...]}
+# ── Session state ──────────────────────────────────────────────────────────────
+# user_id -> {"mode": "custom"|"pro", "msg_ids": [], "step": ...}
 _sessions: dict = {}
+# user_id -> {"step": "first"|"last", "first_id": int}  (for /batch wizard)
+_batch_wizard: dict = {}
 
 
-# ── /batch ─────────────────────────────────────────────────────────────────────
+# ── /batch — ask first & last msg ID ──────────────────────────────────────────
 
 @router.message(Command("batch"), is_admin)
-async def start_batch(message: Message):
-    _sessions[message.from_user.id] = {"mode": "batch", "msg_ids": []}
+async def batch_cmd(message: Message):
+    _batch_wizard[message.from_user.id] = {"step": "first"}
     await message.answer(
-        "📦 <b>Batch mode started!</b>\n\n"
-        "Send or forward files one by one. I'll store each one automatically.\n\n"
-        "Send /done when finished to get the link.\n"
-        "Send /cancel to abort."
+        "📦 <b>Batch Link Generator</b>\n\n"
+        "Step 1/2 — Send the <b>first message ID</b> from your DB channel:"
     )
+
+
+@router.message(is_admin, F.chat.type == "private", F.text.regexp(r"^\d+$"))
+async def batch_wizard_input(message: Message, bot):
+    uid   = message.from_user.id
+    state = _batch_wizard.get(uid)
+
+    if not state:
+        return  # not in wizard
+
+    msg_id = int(message.text.strip())
+
+    if state["step"] == "first":
+        _batch_wizard[uid] = {"step": "last", "first_id": msg_id}
+        await message.answer(
+            f"✅ First ID: <code>{msg_id}</code>\n\n"
+            f"Step 2/2 — Now send the <b>last message ID</b>:"
+        )
+
+    elif state["step"] == "last":
+        first_id = state["first_id"]
+        last_id  = msg_id
+        del _batch_wizard[uid]
+
+        if last_id < first_id:
+            first_id, last_id = last_id, first_id
+
+        param = f"batch_{first_id}_{last_id}"
+        me    = await bot.get_me()
+        link  = f"https://t.me/{me.username}?start={param}"
+        count = last_id - first_id + 1
+
+        await message.answer(
+            f"✅ <b>Batch link created!</b>\n\n"
+            f"📦 Files: <b>{count}</b> (IDs {first_id}–{last_id})\n"
+            f"🔗 {link}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔗 Share Link", url=link)]
+            ]),
+            disable_web_page_preview=True,
+        )
+        # Log
+        log_ch = await CosmicBotz.get_log_channel()
+        if log_ch:
+            try:
+                await bot.send_message(
+                    log_ch,
+                    f"📦 <b>Batch link</b>\nFiles: {count} | IDs: {first_id}–{last_id}\n{link}",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔗 Share", url=link)]
+                    ]),
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                pass
 
 
 # ── /custom_batch ──────────────────────────────────────────────────────────────
 
 @router.message(Command("custom_batch"), is_admin)
-async def start_custom_batch(message: Message):
-    """
-    Option A — inline IDs: /custom_batch 101 105 112
-    Option B — interactive: /custom_batch  then send IDs as text
-    """
-    uid  = message.from_user.id
-    args = message.text.split()[1:]
-
-    if args:
-        try:
-            msg_ids = [int(x) for x in args]
-        except ValueError:
-            return await message.answer("❌ Provide valid integer message IDs.")
-        _sessions[uid] = {"mode": "custom", "msg_ids": msg_ids}
-        await message.answer(
-            f"✅ <b>{len(msg_ids)} IDs captured.</b>\n\nSend /done to generate the link."
-        )
-    else:
-        _sessions[uid] = {"mode": "custom", "msg_ids": []}
-        await message.answer(
-            "🔢 <b>Custom Batch mode!</b>\n\n"
-            "Send DB channel message IDs as space-separated numbers.\n"
-            "Example: <code>101 105 112 200</code>\n\n"
-            "Send /done when finished or /cancel to abort."
-        )
+async def custom_batch_cmd(message: Message):
+    uid = message.from_user.id
+    _sessions[uid] = {"mode": "custom", "msg_ids": []}
+    await message.answer(
+        "📁 <b>Custom Batch mode started!</b>\n\n"
+        "Send or forward files here — I'll store each one automatically in the DB channel.\n\n"
+        "When done → /done to get the link\n"
+        "To abort → /cancel"
+    )
 
 
 # ── /done ──────────────────────────────────────────────────────────────────────
 
-@router.message(Command("done"), is_admin)
-async def finish_session(message: Message, bot):
-    uid     = message.from_user.id
-    session = _sessions.pop(uid, None)
-
-    if session is None:
-        return await message.answer("❌ No active session. Start one with /batch or /custom_batch.")
-
-    msg_ids = session["msg_ids"]
-    mode    = session["mode"]
-
-    if not msg_ids:
-        return await message.answer("❌ No files or IDs collected yet.")
-
-    me = await bot.get_me()
-
-    if mode == "batch":
-        param = f"batch_{msg_ids[0]}_{msg_ids[-1]}"
-    else:
-        param = "cb_" + "_".join(str(i) for i in msg_ids)
-
-    link = f"https://t.me/{me.username}?start={param}"
-
-    await message.answer(
-        f"✅ <b>{'Batch' if mode == 'batch' else 'Custom Batch'} link generated!</b>\n\n"
-        f"📦 <b>Files:</b> {len(msg_ids)}\n"
-        f"🔗 <b>Link:</b> {link}",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔗 Share Link", url=link)]]
-        ),
-        disable_web_page_preview=True,
-    )
-
-
-# ── /cancel ────────────────────────────────────────────────────────────────────
-
-@router.message(Command("cancel"), is_admin)
-async def cancel_session(message: Message):
-    if _sessions.pop(message.from_user.id, None) is not None:
-        await message.answer("❌ Session cancelled.")
-    else:
-        await message.answer("No active session.")
-
-
-# ── Media collector — during /batch session ────────────────────────────────────
-
-@router.message(is_admin, F.content_type.in_(MEDIA_TYPES))
-async def collect_batch_file(message: Message):
-    uid     = message.from_user.id
-    session = _sessions.get(uid)
-
-    if not session or session["mode"] != "batch":
-        return  # Not in a batch session
-
-    try:
-        stored = await message.copy_to(CHANNEL_ID)
-        session["msg_ids"].append(stored.message_id)
-        count = len(session["msg_ids"])
-        await message.answer(f"✅ File {count} stored. Send more or /done to finish.")
-    except Exception as e:
-        logger.error(f"Batch store error: {e}")
-        await message.answer(f"❌ Failed to store file:\n<code>{e}</code>")
-
-
-# ── Text ID collector — during /custom_batch session ───────────────────────────
-
-@router.message(is_admin, F.text, ~F.text.startswith("/"))
-async def collect_custom_ids(message: Message):
-    uid     = message.from_user.id
-    session = _sessions.get(uid)
-
-    if not session or session["mode"] != "custom":
-        return  # Not in a custom_batch session
-
-    valid = [int(p) for p in message.text.split() if p.isdigit()]
-    if not valid:
-        return await message.answer("❌ No valid IDs. Send space-separated numbers.")
-
-    session["msg_ids"].extend(valid)
-    total = len(session["msg_ids"])
-    await message.answer(
-        f"✅ Added {len(valid)} ID(s). Total: <b>{total}</b>\n\n"
-        "Send more or /done to generate the link."
-    )
