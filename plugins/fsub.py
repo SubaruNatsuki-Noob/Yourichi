@@ -239,6 +239,7 @@ async def on_chat_member(update: ChatMemberUpdated):
         return
     old = update.old_chat_member
     new = update.new_chat_member
-    if old and old.status == "member" and new.status in ("left", "kicked"):
+    # User left or was kicked
+    if old and old.status in ("member", "administrator", "creator") and new.status in ("left", "kicked"):
         if await CosmicBotz.req_user_exist(update.chat.id, old.user.id):
             await CosmicBotz.del_req_user(update.chat.id, old.user.id)
