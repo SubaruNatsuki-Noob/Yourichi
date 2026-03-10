@@ -338,7 +338,7 @@ async def cb_log_clear(c: CallbackQuery):
 
 # ── Input handler (catches text responses to panel prompts) ────────────────────
 
-@router.message(is_admin, F.chat.type == "private")
+@router.message(is_admin, F.chat.type == "private", F.func(lambda m: m.from_user.id in _waiting))
 async def panel_input(message: Message, bot):
     uid    = message.from_user.id
     action = _waiting.pop(uid, None)
