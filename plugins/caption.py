@@ -2,7 +2,6 @@
 Caption template management.
 Variables: {title} {clean_title} {episode} {season} {quality} {extension}
 """
-import functools
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -31,7 +30,6 @@ VARIABLE_HELP = (
 
 
 @router.message(Command("setcaption"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def setcaption_cmd(message: Message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
@@ -49,7 +47,6 @@ async def setcaption_cmd(message: Message):
 
 
 @router.message(Command("getcaption"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def getcaption_cmd(message: Message):
     template = await CosmicBotz.get_caption() or CUSTOM_CAPTION
     await message.answer(
@@ -58,7 +55,6 @@ async def getcaption_cmd(message: Message):
 
 
 @router.message(Command("delcaption"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def delcaption_cmd(message: Message):
     await CosmicBotz.set_caption("")
     await message.answer("✅ Caption template cleared. Files will use their original captions.")
