@@ -1,5 +1,5 @@
 """
-AlisaFile Store Bot — Aiogram 3
+YourichiFile Store Bot — Aiogram 3
 ================================
 Supports both Webhook (recommended for Render) and Polling mode.
 Toggle via WEBHOOK=True/False in your environment variables.
@@ -71,7 +71,7 @@ async def set_commands(bot: Bot):
 
 # ── Startup checks ─────────────────────────────────────────────────────────────
 
-async def on_startup(bot: Bot):
+async def on_startup(bot: Bot, **kwargs):
     # Verify DB storage channel
     try:
         await bot.get_chat(CHANNEL_ID)
@@ -100,7 +100,7 @@ async def on_startup(bot: Bot):
         pass
 
 
-async def on_shutdown(bot: Bot):
+async def on_shutdown(bot: Bot, **kwargs):
     logger.info("Shutting down — removing webhook...")
     await bot.delete_webhook(drop_pending_updates=True)
 
@@ -193,9 +193,9 @@ async def main():
     dp = build_dispatcher()
 
     # Register startup/shutdown hooks
-    dp.startup.register(lambda: on_startup(bot))
+    dp.startup.register(on_startup)
     if WEBHOOK:
-        dp.shutdown.register(lambda: on_shutdown(bot))
+        dp.shutdown.register(on_shutdown)
 
     if WEBHOOK:
         logger.info("Starting in WEBHOOK mode...")
