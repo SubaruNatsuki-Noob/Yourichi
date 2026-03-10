@@ -9,8 +9,8 @@ from config import CHANNEL_ID
 from database.database import CosmicBotz
 from helper import is_admin, encode_file_id
 # Assuming these exist in your helper modules based on your snippet
-# from helper.utils import parse_tg_url
-# from helper.caption_parser import parse_filename
+from helper.utils import parse_tg_url
+from helper.caption_parser import parse_filename
 
 router = Router()
 logger = logging.getLogger(__name__)
