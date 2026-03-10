@@ -6,6 +6,8 @@ from logging.handlers import RotatingFileHandler
 # BOT CREDENTIALS
 # ─────────────────────────────────────────────────────────────────────────────
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+APP_ID       = int(os.environ.get("APP_ID",   "0"))
+API_HASH     = os.environ.get("API_HASH",      "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OWNER / ADMINS
@@ -49,7 +51,10 @@ BAN_SUPPORT      = os.environ.get("BAN_SUPPORT", "https://t.me/")
 # ─────────────────────────────────────────────────────────────────────────────
 # MEDIA / UI
 # ─────────────────────────────────────────────────────────────────────────────
-START_PIC              = os.environ.get("START_PIC",              "")
+# START_PIC supports multiple URLs separated by | — bot picks one randomly each time
+_START_PIC_RAW         = os.environ.get("START_PIC", "")
+START_PICS             = [u.strip() for u in _START_PIC_RAW.split("|") if u.strip()]
+START_PIC              = START_PICS[0] if START_PICS else ""   # legacy single fallback
 FORCE_PIC              = os.environ.get("FORCE_PIC",              "")
 PROTECT_CONTENT        = os.environ.get("PROTECT_CONTENT",        "False") == "True"
 DISABLE_CHANNEL_BUTTON = os.environ.get("DISABLE_CHANNEL_BUTTON", "False") == "True"
@@ -81,14 +86,7 @@ HELP_TXT = (
     "ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ꜰɪʟᴇ.</blockquote></b>"
 )
 
-ABOUT_TXT = (
-    "<b><blockquote>"
-    "◈ ʙᴏᴛ: AlisaFile Store\n"
-    "◈ ꜰʀᴀᴍᴇᴡᴏʀᴋ: Aiogram 3\n"
-    "◈ ʟᴀɴɢᴜᴀɢᴇ: Python 3\n"
-    "◈ ᴅᴇᴠᴇʟᴏᴘᴇʀ: @{OWNER}\n"
-    "</blockquote></b>"
-)
+# ABOUT_TXT built dynamically in plugins/misc.py using live bot info
 
 CMD_TXT = """<blockquote><b>» ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs:</b></blockquote>
 
@@ -124,12 +122,12 @@ CMD_TXT = """<blockquote><b>» ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs:</b></blockqu
 CUSTOM_CAPTION = os.environ.get("CUSTOM_CAPTION", "<b>• {title}</b>")
 
 BOT_STATS_TEXT  = "<b>BOT UPTIME</b>\n{uptime}"
-USER_REPLY_TEXT = "ʙᴀᴋᴋᴀ! ʏᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴍʏ sᴇɴᴘᴀɪ!!"
+USER_REPLY_TEXT = "<blockquote> ʙᴀᴋᴋᴀ! ʏᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴍʏ sᴇɴᴘᴀɪ!!</blockquote>"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOGGING
 # ─────────────────────────────────────────────────────────────────────────────
-LOG_FILE_NAME = "alisafile.log"
+LOG_FILE_NAME = "void.log"
 
 logging.basicConfig(
     level=logging.INFO,
