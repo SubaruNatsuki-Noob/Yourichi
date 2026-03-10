@@ -5,10 +5,13 @@ import logging
 from aiogram import Router, F
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.enums import ChatAction
 
-from config import START_MSG, FORCE_MSG, HELP_TXT, ABOUT_TXT, START_PIC, FORCE_PIC
+from config import START_MSG, FORCE_MSG, HELP_TXT, ABOUT_TXT, START_PIC, START_PICS, FORCE_PIC, CHANNEL_ID
+import random
 from database.database import CosmicBotz
-from helper import user_mention, decode_file_id, is_not_banned, full_delivery
+from helper import user_mention, is_not_banned, full_delivery
+from helper.utils import decode_file_id
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -45,11 +48,10 @@ async def _send_fsub_msg(message: Message, channels: list, start_param: str = ""
     buttons = [[InlineKeyboardButton(text=f"📢 {t}", url=l)] for _, t, l in channels]
     cb      = f"reload_{start_param}" if start_param else "reload"
     buttons.append([InlineKeyboardButton(text="🔄 Reload", callback_data=cb)])
-    markup  = InlineKeyboardMarkup(inline_keyboard=buttons)
     if FORCE_PIC:
-        await message.answer_photo(FORCE_PIC, caption=text, reply_markup=markup)
+        await message.answer_photo(FORCE_PIC, caption=text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     else:
-        await message.answer(text, reply_markup=markup, disable_web_page_preview=True)
+        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), disable_web_page_preview=True)
 
 
 def _start_markup():
@@ -58,16 +60,57 @@ def _start_markup():
         InlineKeyboardButton(text="👤 About", callback_data="about"),
     ]])
 
+def _pick_pic() -> str:
+    """Return a random pic from START_PICS, or fallback to START_PIC."""
+    return random.choice(START_PICS) if START_PICS else START_PIC
+
+
 def _back_btn():
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="« Back", callback_data="back_start")
     ]])
 
 
+def _parse_start_param(start_param: str, fallback_channel: int) -> list[tuple[int, int]]:
+    """
+    Parse start_param into list of (channel_id, msg_id) tuples.
+    Supports:
+      <encoded>       — single file, new encoding (channel+msg) or legacy (msg only)
+      batch_F_L       — range from F to L in fallback_channel
+      cb_E1_E2_...    — each Ei is encoded (channel+msg)
+    """
+    try:
+        if start_param.startswith("batch_"):
+            _, s, e = start_param.split("_", 2)
+            return [(fallback_channel, mid) for mid in range(int(s), int(e) + 1)]
+
+        if start_param.startswith("cb_"):
+            parts  = start_param[3:].split("_")
+            result = []
+            for p in parts:
+                if p.isdigit():
+                    # legacy plain msg_id
+                    result.append((fallback_channel, int(p)))
+                else:
+                    ch, mid = decode_file_id(p)
+                    result.append((ch, mid))
+            return result
+
+        # Single encoded file
+        ch, mid = decode_file_id(start_param)
+        return [(ch, mid)]
+    except Exception as e:
+        logger.error(f"_parse_start_param: {e}")
+        return []
+
+
 # ── /start ─────────────────────────────────────────────────────────────────────
 
 @router.message(CommandStart(), is_not_banned)
 async def start_handler(message: Message, command: CommandObject, bot):
+    # Show action immediately before any processing
+    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+
     user = message.from_user
     if not await CosmicBotz.present_user(user.id):
         await CosmicBotz.add_user(user.id)
@@ -79,28 +122,21 @@ async def start_handler(message: Message, command: CommandObject, bot):
         return await _send_fsub_msg(message, fsub_channels, start_param)
 
     if start_param:
-        try:
-            if start_param.startswith("batch_"):
-                _, s, e = start_param.split("_", 2)
-                msg_ids = list(range(int(s), int(e) + 1))
-            elif start_param.startswith("cb_"):
-                msg_ids = [int(x) for x in start_param[3:].split("_") if x.isdigit()]
-            else:
-                msg_ids = [decode_file_id(start_param)]
-        except Exception as ex:
-            logger.error(f"start param parse: {ex}")
+        pairs = _parse_start_param(start_param, CHANNEL_ID)
+        if not pairs:
             return await message.answer("❌ Invalid or expired link.")
-        return await full_delivery(bot, message.chat.id, msg_ids, start_param)
+        await bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)  # overrides TYPING
+        return await full_delivery(bot, message.chat.id, pairs, start_param)
 
     mention = user_mention(user)
     text    = START_MSG.replace("{mention}", mention)
     if START_PIC:
-        await message.answer_photo(START_PIC, caption=text, reply_markup=_start_markup())
+        await message.answer_photo(_pick_pic(), caption=text, reply_markup=_start_markup())
     else:
         await message.answer(text, reply_markup=_start_markup())
 
 
-# ── Reload ─────────────────────────────────────────────────────────────────────
+# ── Reload callback ─────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("reload"))
 async def reload_cb(callback: CallbackQuery, bot):
@@ -114,22 +150,17 @@ async def reload_cb(callback: CallbackQuery, bot):
     await callback.message.delete()
 
     if start_param:
-        try:
-            if start_param.startswith("batch_"):
-                _, s, e = start_param.split("_", 2)
-                msg_ids = list(range(int(s), int(e) + 1))
-            elif start_param.startswith("cb_"):
-                msg_ids = [int(x) for x in start_param[3:].split("_") if x.isdigit()]
-            else:
-                msg_ids = [decode_file_id(start_param)]
-        except Exception:
+        pairs = _parse_start_param(start_param, CHANNEL_ID)
+        if not pairs:
             return await bot.send_message(user.id, "❌ Invalid link.")
-        await full_delivery(bot, user.id, msg_ids, start_param)
+        await bot.send_chat_action(user.id, ChatAction.UPLOAD_VIDEO)
+        await full_delivery(bot, user.id, pairs, start_param)
     else:
+        await bot.send_chat_action(user.id, ChatAction.TYPING)
         mention = user_mention(user)
         text    = START_MSG.replace("{mention}", mention)
         if START_PIC:
-            await bot.send_photo(user.id, START_PIC, caption=text, reply_markup=_start_markup())
+            await bot.send_photo(user.id, _pick_pic(), caption=text, reply_markup=_start_markup())
         else:
             await bot.send_message(user.id, text, reply_markup=_start_markup())
 
