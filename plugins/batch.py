@@ -6,7 +6,6 @@ Batch upload handlers.
 /done         — finish active session and generate link
 /cancel       — abort current session
 """
-import functools
 import logging
 
 from aiogram import Router, F
@@ -29,7 +28,6 @@ _sessions: dict = {}
 # ── /batch ─────────────────────────────────────────────────────────────────────
 
 @router.message(Command("batch"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def start_batch(message: Message):
     _sessions[message.from_user.id] = {"mode": "batch", "msg_ids": []}
     await message.answer(
@@ -43,7 +41,6 @@ async def start_batch(message: Message):
 # ── /custom_batch ──────────────────────────────────────────────────────────────
 
 @router.message(Command("custom_batch"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def start_custom_batch(message: Message):
     """
     Option A — inline IDs: /custom_batch 101 105 112
@@ -74,7 +71,6 @@ async def start_custom_batch(message: Message):
 # ── /done ──────────────────────────────────────────────────────────────────────
 
 @router.message(Command("done"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def finish_session(message: Message, bot):
     uid     = message.from_user.id
     session = _sessions.pop(uid, None)
@@ -111,7 +107,6 @@ async def finish_session(message: Message, bot):
 # ── /cancel ────────────────────────────────────────────────────────────────────
 
 @router.message(Command("cancel"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def cancel_session(message: Message):
     if _sessions.pop(message.from_user.id, None) is not None:
         await message.answer("❌ Session cancelled.")
@@ -122,7 +117,6 @@ async def cancel_session(message: Message):
 # ── Media collector — during /batch session ────────────────────────────────────
 
 @router.message(is_admin, F.content_type.in_(MEDIA_TYPES))
-@functools.wraps(lambda m, **kw: None)
 async def collect_batch_file(message: Message):
     uid     = message.from_user.id
     session = _sessions.get(uid)
@@ -143,7 +137,6 @@ async def collect_batch_file(message: Message):
 # ── Text ID collector — during /custom_batch session ───────────────────────────
 
 @router.message(is_admin, F.text, ~F.text.startswith("/"))
-@functools.wraps(lambda m, **kw: None)
 async def collect_custom_ids(message: Message):
     uid     = message.from_user.id
     session = _sessions.get(uid)
