@@ -86,14 +86,14 @@ def build_dp() -> Dispatcher:
     dp = Dispatcher()
     # Order matters — more specific handlers first
     dp.include_router(start_router)    # /start, file delivery, fsub gate
-    dp.include_router(panel_router)    # /panel — must be before misc to catch panel input
-    dp.include_router(links_router)    # /genlink + auto-genlink
     dp.include_router(batch_router)    # /batch /custom_batch /pro_batch /done /cancel
+    dp.include_router(links_router)    # /genlink + auto-genlink (after batch so session check works)
     dp.include_router(admin_router)    # ban/unban/timer/broadcast
     dp.include_router(fsub_router)     # force-sub commands + events
     dp.include_router(caption_router)  # /setcaption /getcaption /delcaption
     dp.include_router(logs_router)     # /logs
     dp.include_router(misc_router)     # /help /about /stats /uptime + reply guard
+    dp.include_router(panel_router)    # /panel + input capture (LAST — uses _waiting filter)
     return dp
 
 
