@@ -3,7 +3,6 @@ Misc: /help, /about, /stats, /uptime + user reply guard.
 All original config texts preserved.
 """
 import datetime
-import functools
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -36,19 +35,16 @@ def _uptime() -> str:
 
 
 @router.message(Command("help"))
-@functools.wraps(lambda m, **kw: None)
 async def help_cmd(message: Message):
     await message.answer(HELP_TXT)
 
 
 @router.message(Command("about"))
-@functools.wraps(lambda m, **kw: None)
 async def about_cmd(message: Message):
     await message.answer(ABOUT_TXT)
 
 
 @router.message(Command("stats"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def stats_cmd(message: Message):
     users    = len(await CosmicBotz.full_userbase())
     banned   = len(await CosmicBotz.get_ban_users())
@@ -65,7 +61,6 @@ async def stats_cmd(message: Message):
 
 
 @router.message(Command("uptime"))
-@functools.wraps(lambda m, **kw: None)
 async def uptime_cmd(message: Message):
     await message.answer(BOT_STATS_TEXT.format(uptime=_uptime()))
 
@@ -74,7 +69,6 @@ async def uptime_cmd(message: Message):
 # Non-admin sends plain text in private → USER_REPLY_TEXT (original behaviour)
 
 @router.message(F.chat.type == "private", F.text, ~F.text.startswith("/"))
-@functools.wraps(lambda m, **kw: None)
 async def user_reply_guard(message: Message):
     uid = message.from_user.id
     # Admins are handled by batch/custom_batch text collectors — skip here
