@@ -24,24 +24,39 @@ def human_readable_time(seconds: int) -> str:
     return ", ".join(parts) if parts else "0 seconds"
 
 
-def encode_file_id(msg_id: int) -> str:
+def encode_file_id(channel_id: int, msg_id: int) -> str:
     """
-    Encode msg_id as Telegram-style base64.
-    Packs as 8-byte big-endian → base64url → looks like BQADAQAD8AkAAp...
-    Example: msg_id 12345 → AAAAAAAAADk
+    Encode channel_id + msg_id into a Telegram-style base64 string.
+    Packs both as 8-byte big-endian ints → 16 bytes → base64url.
+    Example result: AAAAAAmWAtIAAAAAAAAAAQ
     """
-    raw     = struct.pack(">q", msg_id)
+    raw     = struct.pack(">qq", channel_id, msg_id)
     encoded = base64.urlsafe_b64encode(raw).decode().rstrip("=")
     return encoded
 
 
-def decode_file_id(encoded: str) -> int:
-    """Decode back to msg_id. Handles both new (8-byte) and legacy (plain text) encoding."""
-    pad = 4 - len(encoded) % 4
-    raw = base64.urlsafe_b64decode(encoded + "=" * pad)
-    if len(raw) == 8:
-        return struct.unpack(">q", raw)[0]
-    return int(raw.decode())  # legacy fallback
+def decode_file_id(encoded: str) -> tuple[int, int]:
+    """
+    Decode back to (channel_id, msg_id).
+    Falls back to legacy (msg_id only) encoding gracefully.
+    """
+    try:
+        pad = 4 - len(encoded) % 4
+        raw = base64.urlsafe_b64decode(encoded + "=" * pad)
+        if len(raw) == 16:
+            channel_id, msg_id = struct.unpack(">qq", raw)
+            return channel_id, msg_id
+        if len(raw) == 8:
+            # Legacy: only msg_id was encoded
+            from config import CHANNEL_ID
+            msg_id = struct.unpack(">q", raw)[0]
+            return CHANNEL_ID, msg_id
+        # Very legacy: plain text msg_id
+        from config import CHANNEL_ID
+        return CHANNEL_ID, int(raw.decode())
+    except Exception as e:
+        logger.error(f"decode_file_id: {e}")
+        raise
 
 
 def user_mention(user: User) -> str:
@@ -51,11 +66,11 @@ def user_mention(user: User) -> str:
 
 def parse_tg_url(url: str) -> tuple:
     """
-    Parse a Telegram post URL into (chat_identifier, message_id).
+    Parse a Telegram post URL.
+    Returns (chat_ref: str, msg_id: int) or (None, None).
     Supports:
       https://t.me/channelname/123
-      https://t.me/c/1234567890/123  (private channel)
-    Returns (chat_ref, msg_id) or (None, None) on failure.
+      https://t.me/c/1234567890/123
     """
     try:
         url   = url.strip().rstrip("/")
