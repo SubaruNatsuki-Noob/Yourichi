@@ -94,7 +94,7 @@ async def log_close(callback: CallbackQuery):
     await callback.message.delete()
 
 
-@router.message(is_admin, F.chat.type == "private", F.text)
+@router.message(is_admin, F.chat.type == "private", F.text, F.func(lambda m: m.from_user.id in _editing))
 async def log_edit_input(message: Message):
     uid = message.from_user.id
     if not _editing.pop(uid, None):
