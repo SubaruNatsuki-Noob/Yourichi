@@ -10,7 +10,7 @@ import logging
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ContentType
 
 from config import CHANNEL_ID
 from database.database import CosmicBotz
@@ -19,7 +19,11 @@ from helper import is_admin
 router = Router()
 logger = logging.getLogger(__name__)
 
-MEDIA_TYPES = {"document", "video", "audio", "photo", "animation", "voice", "video_note"}
+MEDIA_TYPES = {
+    ContentType.DOCUMENT, ContentType.VIDEO, ContentType.AUDIO,
+    ContentType.PHOTO, ContentType.ANIMATION, ContentType.VOICE,
+    ContentType.VIDEO_NOTE,
+}
 
 # user_id -> {"mode": "batch"|"custom", "msg_ids": [...]}
 _sessions: dict = {}
