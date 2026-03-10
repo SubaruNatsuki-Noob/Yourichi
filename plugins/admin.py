@@ -4,7 +4,6 @@ ban, unban, banlist, add_admin, deladmin, admins,
 dlt_time, check_dlt_time, dbroadcast, pbroadcast, cmds
 """
 import asyncio
-import functools
 import logging
 
 from aiogram import Router
@@ -34,7 +33,6 @@ def _target(message: Message):
 # ── /ban ───────────────────────────────────────────────────────────────────────
 
 @router.message(Command("ban"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def ban_cmd(message: Message):
     uid = _target(message)
     if not uid:
@@ -50,7 +48,6 @@ async def ban_cmd(message: Message):
 # ── /unban ─────────────────────────────────────────────────────────────────────
 
 @router.message(Command("unban"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def unban_cmd(message: Message):
     uid = _target(message)
     if not uid:
@@ -64,7 +61,6 @@ async def unban_cmd(message: Message):
 # ── /banlist ───────────────────────────────────────────────────────────────────
 
 @router.message(Command("banlist"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def banlist_cmd(message: Message):
     banned = await CosmicBotz.get_ban_users()
     if not banned:
@@ -76,7 +72,6 @@ async def banlist_cmd(message: Message):
 # ── /add_admin ─────────────────────────────────────────────────────────────────
 
 @router.message(Command("add_admin"), is_owner)
-@functools.wraps(lambda m, **kw: None)
 async def add_admin_cmd(message: Message):
     uid = _target(message)
     if not uid:
@@ -88,7 +83,6 @@ async def add_admin_cmd(message: Message):
 # ── /deladmin ──────────────────────────────────────────────────────────────────
 
 @router.message(Command("deladmin"), is_owner)
-@functools.wraps(lambda m, **kw: None)
 async def del_admin_cmd(message: Message):
     uid = _target(message)
     if not uid:
@@ -100,7 +94,6 @@ async def del_admin_cmd(message: Message):
 # ── /admins ────────────────────────────────────────────────────────────────────
 
 @router.message(Command("admins"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def admins_cmd(message: Message):
     admins = await CosmicBotz.get_all_admins()
     text   = f"<b>👮 Admins:</b>\n\n• <code>{OWNER_ID}</code> (Owner)\n"
@@ -112,7 +105,6 @@ async def admins_cmd(message: Message):
 # ── /dlt_time ──────────────────────────────────────────────────────────────────
 
 @router.message(Command("dlt_time"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def set_timer_cmd(message: Message):
     args = message.text.split(maxsplit=1)
     if len(args) != 2:
@@ -132,7 +124,6 @@ async def set_timer_cmd(message: Message):
 # ── /check_dlt_time ────────────────────────────────────────────────────────────
 
 @router.message(Command("check_dlt_time"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def check_timer_cmd(message: Message):
     secs  = await CosmicBotz.get_del_timer()
     label = human_readable_time(secs) if secs > 0 else "disabled"
@@ -142,7 +133,6 @@ async def check_timer_cmd(message: Message):
 # ── /dbroadcast ────────────────────────────────────────────────────────────────
 
 @router.message(Command("dbroadcast"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def dbroadcast_cmd(message: Message):
     reply = message.reply_to_message
     if not reply or not (reply.document or reply.video):
@@ -168,7 +158,6 @@ async def dbroadcast_cmd(message: Message):
 # ── /pbroadcast ────────────────────────────────────────────────────────────────
 
 @router.message(Command("pbroadcast"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def pbroadcast_cmd(message: Message):
     reply = message.reply_to_message
     if not reply or not reply.photo:
@@ -194,6 +183,5 @@ async def pbroadcast_cmd(message: Message):
 # ── /cmds ──────────────────────────────────────────────────────────────────────
 
 @router.message(Command("cmds"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def cmds_cmd(message: Message):
     await message.answer(CMD_TXT)
