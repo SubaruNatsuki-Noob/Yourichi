@@ -1,7 +1,6 @@
 """
 /genlink — reply to any file → store it in DB channel → get a shareable link.
 """
-import functools
 import logging
 
 from aiogram import Router
@@ -19,7 +18,6 @@ MEDIA_TYPES = {"document", "video", "audio", "photo", "animation", "voice", "vid
 
 
 @router.message(Command("genlink"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def genlink_cmd(message: Message, bot):
     reply = message.reply_to_message
 
