@@ -7,7 +7,7 @@ from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ChatAction
 
-from config import START_MSG, FORCE_MSG, HELP_TXT, ABOUT_TXT, START_PIC, START_PICS, FORCE_PIC, CHANNEL_ID
+from config import START_MSG, FORCE_MSG, HELP_TXT, START_PIC, START_PICS, FORCE_PIC, CHANNEL_ID, OWNER
 import random
 from database.database import CosmicBotz
 from helper import user_mention, is_not_banned, full_delivery
@@ -175,11 +175,21 @@ async def help_cb(callback: CallbackQuery):
         await callback.message.edit_text(HELP_TXT, reply_markup=_back_btn())
 
 @router.callback_query(F.data == "about")
-async def about_cb(callback: CallbackQuery):
+async def about_cb(callback: CallbackQuery, bot):
+    me   = await bot.get_me()
+    text = (
+        "<b><blockquote>"
+        f"◈ ʙᴏᴛ: {me.full_name}\n"
+        f"◈ ᴜꜱᴇʀɴᴀᴍᴇ: @{me.username}\n"
+        "◈ ꜰʀᴀᴍᴇᴡᴏʀᴋ: Aiogram 3\n"
+        "◈ ʟᴀɴɢᴜᴀɢᴇ: Python 3\n"
+        f"◈ ᴅᴇᴠᴇʟᴏᴘᴇʀ: @{OWNER}\n"
+        "</blockquote></b>"
+    )
     try:
-        await callback.message.edit_caption(caption=ABOUT_TXT, reply_markup=_back_btn())
+        await callback.message.edit_caption(caption=text, reply_markup=_back_btn())
     except Exception:
-        await callback.message.edit_text(ABOUT_TXT, reply_markup=_back_btn())
+        await callback.message.edit_text(text, reply_markup=_back_btn())
 
 @router.callback_query(F.data == "back_start")
 async def back_start_cb(callback: CallbackQuery):
