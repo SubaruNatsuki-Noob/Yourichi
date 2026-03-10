@@ -3,7 +3,6 @@ Force-subscribe management.
 Commands: addchnl, delchnl, listchnl, fsub_mode, delreq
 Events:   chat_join_request, chat_member (leave tracking)
 """
-import functools
 import logging
 
 from aiogram import Router, F
@@ -24,7 +23,6 @@ logger = logging.getLogger(__name__)
 # ── /addchnl ───────────────────────────────────────────────────────────────────
 
 @router.message(Command("addchnl"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def addchnl_cmd(message: Message, bot):
     temp = await message.answer("<i>ᴡᴀɪᴛ ᴀ sᴇᴄ..</i>")
     args = message.text.split(maxsplit=1)
@@ -68,7 +66,6 @@ async def addchnl_cmd(message: Message, bot):
 # ── /delchnl ───────────────────────────────────────────────────────────────────
 
 @router.message(Command("delchnl"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def delchnl_cmd(message: Message):
     temp         = await message.answer("<i>ᴡᴀɪᴛ ᴀ sᴇᴄ..</i>")
     args         = message.text.split(maxsplit=1)
@@ -101,7 +98,6 @@ async def delchnl_cmd(message: Message):
 # ── /listchnl ──────────────────────────────────────────────────────────────────
 
 @router.message(Command("listchnl"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def listchnl_cmd(message: Message, bot):
     temp     = await message.answer("<i>ᴡᴀɪᴛ ᴀ sᴇᴄ..</i>")
     channels = await CosmicBotz.show_channels()
@@ -132,7 +128,6 @@ async def listchnl_cmd(message: Message, bot):
 # ── /fsub_mode ─────────────────────────────────────────────────────────────────
 
 @router.message(Command("fsub_mode"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def fsub_mode_cmd(message: Message, bot):
     temp     = await message.answer("<i>ᴡᴀɪᴛ ᴀ sᴇᴄ..</i>")
     channels = await CosmicBotz.show_channels()
@@ -161,7 +156,6 @@ async def fsub_mode_cmd(message: Message, bot):
 
 
 @router.callback_query(F.data.startswith("rfs_"), is_admin)
-@functools.wraps(lambda c, **kw: None)
 async def toggle_fsub_cb(callback: CallbackQuery, bot):
     ch_id   = int(callback.data.split("_", 1)[1])
     current = await CosmicBotz.get_channel_mode(ch_id)
@@ -191,7 +185,6 @@ async def toggle_fsub_cb(callback: CallbackQuery, bot):
 # ── /delreq ────────────────────────────────────────────────────────────────────
 
 @router.message(Command("delreq"), is_admin)
-@functools.wraps(lambda m, **kw: None)
 async def delreq_cmd(message: Message, bot):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
@@ -232,7 +225,6 @@ async def delreq_cmd(message: Message, bot):
 # ── Chat join request tracking ──────────────────────────────────────────────────
 
 @router.chat_join_request()
-@functools.wraps(lambda r, **kw: None)
 async def on_join_request(request: ChatJoinRequest):
     if await CosmicBotz.reqChannel_exist(request.chat.id):
         if not await CosmicBotz.req_user_exist(request.chat.id, request.from_user.id):
@@ -242,7 +234,6 @@ async def on_join_request(request: ChatJoinRequest):
 # ── Member leave tracking ───────────────────────────────────────────────────────
 
 @router.chat_member()
-@functools.wraps(lambda u, **kw: None)
 async def on_chat_member(update: ChatMemberUpdated):
     if not await CosmicBotz.reqChannel_exist(update.chat.id):
         return
